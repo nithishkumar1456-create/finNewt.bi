@@ -1,0 +1,88 @@
+  Project Architecture & Tools Report:
+  Generating a comprehensive project overview report for both frontend and backend.
+
+  ✓  ReadFolder  . → Found 3 item(s). (1 ignored)
+  ✓  ReadFolder  backend/src/controllers → Found 7 item(s).
+  ✓  ReadFolder  backend/src/services → Found 6 item(s).
+  ✓  ReadFolder  frontend/src/pages → Found 3 item(s).
+  ✓  ReadFolder  frontend/src/store → Found 7 item(s).
+  ✓  ReadFolder  backend/src/controllers → Found 7 item(s).
+  ✓  ReadFolder  backend/src/services → Found 6 item(s).
+  ✓  ReadFolder  frontend/src/pages → Found 3 item(s).
+
+✦ This is a comprehensive technical report for FinNewt.bi, detailing the architecture, tech stack, and the purpose of
+  every major file and folder in both the backend and frontend.
+
+  ---
+
+  🚀 Project Technical Report: FinNewt.bi
+
+  FinNewt.bi is a premium, AI-style personal finance intelligence platform designed with a modern, dark-luxury fintech
+  aesthetic.
+
+  ---
+
+  🛠️ Backend Architecture (Node.js & TypeScript)
+  The backend follows a Service-Controller pattern, ensuring a clean separation of concerns between HTTP logic and
+  business rules.
+
+  Core Tools & Technologies
+   * Node.js & Express: The server framework.
+   * Prisma ORM: Modern database toolkit used to interact with the PostgreSQL database.
+   * Redis: Used for high-speed data caching and temporary storage of OTPs.
+   * Nodemailer: Handles SMTP email delivery for verification codes.
+   * Zod: Schema validation for all incoming API requests.
+   * JWT (JSON Web Tokens): Secure authentication and session management.
+   * Bcrypt.js: Industry-standard password hashing.
+
+  Folder & File Breakdown
+   * /prisma: Contains schema.prisma which defines your database tables (Users, Transactions, Budgets, etc.).
+   * /src/config: Centralizes environment variables (env.ts) using Zod for type safety.
+   * /src/controllers: Handles the Request/Response cycle. It takes data from the routes and passes it to the services.
+   * /src/services: The "Brain" of the app. This is where the actual business logic lives (e.g., calculating budget
+     progress or processing payments).
+   * /src/routes: Defines the API endpoints (e.g., /api/auth/register, /api/transactions).
+   * /src/middlewares: Logic that runs before the controller (e.g., auth.middleware.ts checks if a user is logged in).
+   * /src/utils: Reusable helper functions like email.ts (SMTP logic) and AppError.ts (Global error handling).
+   * /src/jobs: Handles background tasks, such as recurring budget resets or scheduled notifications.
+
+  ---
+
+  🎨 Frontend Architecture (React & Tailwind)
+  The frontend is built as a Single Page Application (SPA) with a heavy focus on high-end UI/UX.
+
+  Core Tools & Technologies
+   * React 19 & TypeScript: The core UI library and type-safe language.
+   * Vite: Next-generation frontend build tool for ultra-fast development.
+   * Tailwind CSS & Shadcn/UI: For the "Dark Luxury" styling and professional components.
+   * Motion (Framer Motion): Powers the smooth animations and interactive effects.
+   * Zustand: A lightweight state management library (used instead of Redux for better performance).
+   * Axios: For making secure API calls to your backend.
+   * Recharts: Used to render the financial analytics and spending graphs.
+
+  Folder & File Breakdown
+   * /src/components/ui: Base UI elements like buttons, inputs, and cards (built with Shadcn).
+   * /src/components/landing: Specialized components for the home page (Hero, Features, Trust sections).
+   * /src/pages: Full views for the application.
+       * auth/: Login and Registration screens.
+       * dashboard/: The main authenticated app (Analytics, Transactions, Settings).
+   * /src/store: Zustand stores that hold global data (e.g., auth.store.ts keeps track of the logged-in user).
+   * /src/services: API wrapper functions that communicate with your backend.
+   * /src/layouts: Wrapper components like DashboardLayout.tsx that provide consistent navigation and sidebars.
+   * index.html: The entry point where we recently updated the metadata and page title.
+
+  ---
+
+  📋 Summary Table of Key Files
+
+  ┌─────────────────────────────┬────────────────────────────────────────────────────────────────┐
+  │ File/Folder                 │ Purpose                                                        │
+  ├─────────────────────────────┼────────────────────────────────────────────────────────────────┤
+  │ backend/.env                │ Secret credentials (DB URLs, SMTP Passwords, JWT Keys).        │
+  │ backend/src/utils/email.ts  │ The engine that sends OTPs using your Gmail SMTP.              │
+  │ frontend/src/store/         │ Manages data so the page doesn't reload when you click things. │
+  │ prisma/schema.prisma        │ The blueprint for your entire database structure.              │
+  │ frontend/tailwind.config.js │ Defines the "Dark Luxury" color palette and fonts.             │
+  └─────────────────────────────┴────────────────────────────────────────────────────────────────┘
+
+  This setup ensures that FinNewt.bi is scalable, secure, and provides a top-tier user experience.

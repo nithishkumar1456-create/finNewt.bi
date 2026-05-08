@@ -58,6 +58,7 @@ export const DashboardLayout = ({ children }: { children: React.ReactNode }) => 
              { icon: LayoutDashboard, label: 'Dashboard', href: '/dashboard' },
              { icon: ArrowRightLeft, label: 'Transactions', href: '/transactions' },
              { icon: BarChart3, label: 'Analytics', href: '/analytics' },
+             { icon: Target, label: 'Budgets', href: '/budgets' },
              { icon: Target, label: 'Goals', href: '/goals' },
              { icon: Settings, label: 'Settings', href: '/settings' },
            ].map((item) => {
@@ -120,11 +121,11 @@ export const DashboardLayout = ({ children }: { children: React.ReactNode }) => 
               <DropdownMenu>
                 <DropdownMenuTrigger className="flex items-center gap-3 p-1 px-2 rounded-xl hover:bg-white/5 transition-colors focus:outline-none">
                      <div className="text-right hidden sm:block pointer-events-none">
-                        <p className="text-sm font-bold text-white">{user?.name || 'User'}</p>
+                        <p className="text-sm font-bold text-white">{user?.fullName || 'User'}</p>
                         <p className="text-[10px] text-gray-500 uppercase tracking-widest leading-none">Premium Plan</p>
                      </div>
                      <Avatar className="w-9 h-9 border border-white/10 pointer-events-none">
-                        <AvatarImage src={`https://ui-avatars.com/api/?name=${user?.name || 'U'}&background=3B82F6&color=fff`} />
+                        <AvatarImage src={`https://ui-avatars.com/api/?name=${user?.fullName || 'U'}&background=3B82F6&color=fff`} />
                         <AvatarFallback><User /></AvatarFallback>
                      </Avatar>
                 </DropdownMenuTrigger>

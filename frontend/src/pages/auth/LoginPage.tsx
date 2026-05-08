@@ -12,19 +12,32 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
-  const setAuth = useAuthStore((state) => state.setAuth);
+  const { login, isLoading, error, clearError } = useAuthStore();
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsLoading(true);
-    // Mock login
-    setTimeout(() => {
-      setAuth({ id: '1', name: 'John Doe', email }, 'mock-token');
-      setIsLoading(false);
+    const payload = {
+      email: email.trim().toLowerCase(),
+      password,
+    };
+    console.log('[LOGIN PAGE] Form submitted', {
+      email: payload.email,
+      hasPassword: Boolean(payload.password),
+      passwordLength: payload.password.length,
+    });
+    console.log('[LOGIN PAGE] Login payload prepared', {
+      email: payload.email,
+      password: payload.password ? '[redacted]' : '',
+    });
+    clearError();
+    try {
+      await login(payload);
+      console.log('[LOGIN PAGE] Login successful; redirecting to dashboard');
       navigate('/dashboard');
-    }, 1500);
+    } catch (err) {
+      console.error('[LOGIN PAGE] Exception caught during login', err);
+    }
   };
 
   return (
@@ -51,6 +64,8 @@ export default function LoginPage() {
 
         <div className="glass-dark p-8 rounded-[2.5rem] border border-white/10 shadow-2xl">
           <form onSubmit={handleLogin} className="space-y-6">
+            {error && <div className="p-3 bg-red-500/10 border border-red-500/50 rounded-xl text-red-500 text-sm">{error}</div>}
+            
             <div className="space-y-2">
               <Label htmlFor="email" className="text-gray-300 ml-1">Email Address</Label>
               <div className="relative">
@@ -61,7 +76,7 @@ export default function LoginPage() {
                   placeholder="name@example.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="bg-white/5 border-white/10 pl-12 h-14 rounded-2xl focus:border-blue-500 transition-colors"
+                  className="bg-white/5 border-white/10 pl-12 h-14 rounded-2xl focus:border-blue-500 transition-colors text-white"
                   required
                 />
               </div>
@@ -82,7 +97,7 @@ export default function LoginPage() {
                   placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="bg-white/5 border-white/10 pl-12 pr-12 h-14 rounded-2xl focus:border-blue-500 transition-colors"
+                  className="bg-white/5 border-white/10 pl-12 pr-12 h-14 rounded-2xl focus:border-blue-500 transition-colors text-white"
                   required
                 />
                 <button

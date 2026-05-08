@@ -1,0 +1,314 @@
+import { prisma } from '../database/prisma';
+import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
+import { AppError } from '../utils/AppError';
+import { signToken, verifyToken } from '../utils/jwt';
+import { env } from '../config/env';
+import redis from '../cache/redis';
+import { sendEmail } from '../utils/email';
+
+const normalizeEmail = (email: string) => email.trim().toLowerCase();
+
+const sanitizeUser = <T extends { password?: string }>(user: T) => {
+  const { password, ...safeUser } = user;
+  return safeUser;
+};
+
+const generateOTP = () => {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+};
+
+export const register = async (data: any) => {
+  const { fullName, phone, password } = data;
+  const email = normalizeEmail(data.email);
+
+  console.log('[AUTH REGISTER] Registration payload received', {
+    email,
+    hasPassword: Boolean(password),
+    passwordLength: password?.length,
+    hasPhone: Boolean(phone?.trim()),
+  });
+
+  const orConditions: any[] = [{ email }];
+  if (phone && phone.trim() !== '') {
+    orConditions.push({ phone });
+  }
+
+  const existingUser = await prisma.user.findFirst({
+    where: { OR: orConditions },
+  });
+
+  if (existingUser) {
+    throw new AppError('User with this email or phone already exists', 400);
+  }
+
+  const hashedPassword = await bcrypt.hash(password, 12);
+
+  // Generate and send OTP
+  const otp = generateOTP();
+  
+  // Store user data in Redis pending verification
+  const pendingUserData = {
+    fullName,
+    email,
+    phone: phone && phone.trim() !== '' ? phone : null,
+    password: hashedPassword,
+  };
+
+  await redis.set(`otp:${email}`, otp, 'EX', 600); // 10 minutes expiry
+  await redis.set(`pending_user:${email}`, JSON.stringify(pendingUserData), 'EX', 600); // 10 minutes expiry
+  console.log('[AUTH REGISTER] OTP and pending user written to Redis', { email });
+
+  await sendEmail({
+    to: email,
+    subject: 'FinNewt.bi - Verify your email',
+    text: `Your FinNewt OTP is: ${otp}. It is valid for 10 minutes. Please do not share it.`,
+  });
+
+  return { message: 'User registration initiated. Please check email for OTP to verify.' };
+};
+
+export const verifyOtp = async (email: string, otp: string) => {
+  email = normalizeEmail(email);
+  console.log('[AUTH VERIFY OTP] Verification attempt', { email, otpLength: otp?.length });
+
+  const storedOtp = await redis.get(`otp:${email}`);
+  if (!storedOtp || storedOtp !== otp) {
+    console.error('[AUTH VERIFY OTP] Invalid or expired OTP', { email, hasStoredOtp: Boolean(storedOtp) });
+    throw new AppError('Invalid or expired OTP', 400);
+  }
+
+  const pendingUserString = await redis.get(`pending_user:${email}`);
+  if (!pendingUserString) {
+    throw new AppError('Registration session expired. Please register again.', 400);
+  }
+
+  const pendingUser = JSON.parse(pendingUserString);
+
+  // Double check if user was created while pending
+  const orConditions: any[] = [{ email: pendingUser.email }];
+  if (pendingUser.phone) {
+    orConditions.push({ phone: pendingUser.phone });
+  }
+
+  const existingUser = await prisma.user.findFirst({
+    where: { OR: orConditions },
+  });
+
+  if (existingUser) {
+    throw new AppError('User already exists', 400);
+  }
+
+  const user = await prisma.user.create({
+    data: {
+      fullName: pendingUser.fullName,
+      email: pendingUser.email,
+      phone: pendingUser.phone,
+      password: pendingUser.password,
+      isEmailVerified: true,
+    },
+  });
+
+  // Create default settings
+  await prisma.settings.create({
+    data: { userId: user.id },
+  });
+
+  await redis.del(`otp:${email}`);
+  await redis.del(`pending_user:${email}`);
+
+  const accessToken = signToken(user.id, env.JWT_SECRET, '15m');
+  const refreshToken = signToken(user.id, env.JWT_REFRESH_SECRET, '7d');
+  console.log('[AUTH VERIFY OTP] JWT and refresh token generated', {
+    userId: user.id,
+    hasAccessToken: Boolean(accessToken),
+    hasRefreshToken: Boolean(refreshToken),
+  });
+
+  await prisma.session.create({
+    data: {
+      userId: user.id,
+      refreshToken,
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+    },
+  });
+  console.log('[AUTH VERIFY OTP] Session created', { userId: user.id });
+
+  return { user: sanitizeUser(user), accessToken, refreshToken };
+};
+
+export const login = async (data: any) => {
+  const { email, password } = data;
+  console.log('[AUTH LOGIN] Incoming login payload', {
+    email,
+    hasPassword: Boolean(password),
+    passwordLength: password?.length,
+  });
+
+  if (!email || !password) {
+    console.error('[AUTH LOGIN] Missing email or password');
+    throw new AppError('Email and password are required', 400);
+  }
+
+  const normalizedEmail = normalizeEmail(email);
+  
+  console.log('[AUTH LOGIN] Normalized email', { normalizedEmail });
+
+  const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+  console.log('[AUTH LOGIN] Prisma lookup result', {
+    found: Boolean(user),
+    userId: user?.id,
+    isEmailVerified: user?.isEmailVerified,
+    storedHashExists: Boolean(user?.password),
+  });
+  
+  if (!user) {
+    console.error('[AUTH LOGIN] User not found', { normalizedEmail });
+    throw new AppError('Invalid credentials', 401);
+  }
+
+  console.log('[AUTH LOGIN] User found. Running bcrypt.compare');
+
+  const isPasswordValid = await bcrypt.compare(password, user.password);
+  console.log('[AUTH LOGIN] bcrypt comparison result', { userId: user.id, isPasswordValid });
+  
+  if (!isPasswordValid) {
+    console.error('[AUTH LOGIN] Invalid password', { normalizedEmail, userId: user.id });
+    throw new AppError('Invalid credentials', 401);
+  }
+
+  if (!user.isEmailVerified) {
+    console.error('[AUTH LOGIN] User email not verified', { normalizedEmail, userId: user.id });
+    throw new AppError('Please verify your email first', 401);
+  }
+
+  console.log('[AUTH LOGIN] Password verified. Generating tokens', { userId: user.id });
+
+  const accessToken = signToken(user.id, env.JWT_SECRET, '15m');
+  const refreshToken = signToken(user.id, env.JWT_REFRESH_SECRET, '7d');
+  console.log('[AUTH LOGIN] JWT and refresh token generated', {
+    userId: user.id,
+    hasAccessToken: Boolean(accessToken),
+    hasRefreshToken: Boolean(refreshToken),
+  });
+
+  await prisma.session.create({
+    data: {
+      userId: user.id,
+      refreshToken,
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    },
+  });
+
+  console.log('[AUTH LOGIN] Session created in DB. Returning sanitized response', { userId: user.id });
+
+  return { user: sanitizeUser(user), accessToken, refreshToken };
+};
+
+export const logout = async (userId: string, refreshToken: string) => {
+  await prisma.session.deleteMany({
+    where: {
+      userId,
+      refreshToken,
+    },
+  });
+};
+
+export const refresh = async (refreshToken: string) => {
+  console.log('[AUTH REFRESH] Refresh requested', { hasRefreshToken: Boolean(refreshToken) });
+
+  if (!refreshToken) {
+    throw new AppError('No refresh token provided', 401);
+  }
+
+  let decoded;
+  try {
+    decoded = verifyToken(refreshToken, env.JWT_REFRESH_SECRET);
+    console.log('[AUTH REFRESH] Refresh token verified', { userId: decoded.id, jti: decoded.jti });
+  } catch (error) {
+    console.error('[AUTH REFRESH] Refresh token verification failed', error);
+    throw new AppError('Invalid or expired refresh token', 401);
+  }
+
+  const session = await prisma.session.findUnique({
+    where: { refreshToken },
+    include: { user: true },
+  });
+
+  if (!session || session.expiresAt < new Date()) {
+    console.error('[AUTH REFRESH] Session missing or expired', {
+      found: Boolean(session),
+      expiresAt: session?.expiresAt,
+    });
+    throw new AppError('Session expired. Please log in again.', 401);
+  }
+
+  const newAccessToken = signToken(session.user.id, env.JWT_SECRET, '15m');
+  const newRefreshToken = signToken(session.user.id, env.JWT_REFRESH_SECRET, '7d');
+
+  await prisma.session.update({
+    where: { id: session.id },
+    data: {
+      refreshToken: newRefreshToken,
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    },
+  });
+  console.log('[AUTH REFRESH] Session rotated and tokens regenerated', { userId: session.user.id });
+
+  return { user: sanitizeUser(session.user), accessToken: newAccessToken, refreshToken: newRefreshToken };
+};
+
+export const forgotPassword = async (email: string) => {
+  email = normalizeEmail(email);
+  const user = await prisma.user.findUnique({ where: { email } });
+  
+  // For security, always return success even if user doesn't exist
+  if (!user) return;
+
+  const resetToken = crypto.randomBytes(32).toString('hex');
+  const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+
+  // Store hashed token in Redis with 1 hour expiry
+  await redis.set(`password_reset:${hashedToken}`, user.id, 'EX', 3600);
+
+  const resetURL = `${env.CLIENT_URL}/reset-password/${resetToken}`;
+
+  await sendEmail({
+    to: email,
+    subject: 'FinNewt.bi - Password Reset',
+    text: `You requested a password reset. Please click on the link to reset your password: ${resetURL}\n\nThis link is valid for 1 hour.`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
+        <h2 style="color: #2563eb; text-align: center;">FinNewt.bi</h2>
+        <p>You requested a password reset for your account.</p>
+        <p>Please click the button below to set a new password:</p>
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${resetURL}" style="background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">Reset Password</a>
+        </div>
+        <p style="color: #64748b; font-size: 14px;">This link will expire in 1 hour. If you didn't request this, you can safely ignore this email.</p>
+      </div>
+    `
+  });
+};
+
+export const resetPassword = async (token: string, newPassword: string) => {
+  const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+  const userId = await redis.get(`password_reset:${hashedToken}`);
+
+  if (!userId) {
+    throw new AppError('Token is invalid or has expired', 400);
+  }
+
+  const hashedPassword = await bcrypt.hash(newPassword, 12);
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: { password: hashedPassword },
+  });
+
+  // Delete all sessions for the user to force logout everywhere
+  await prisma.session.deleteMany({ where: { userId } });
+  
+  // Delete the reset token
+  await redis.del(`password_reset:${hashedToken}`);
+};

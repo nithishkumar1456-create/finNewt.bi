@@ -1,4 +1,5 @@
 import { DashboardLayout } from '@/layouts/DashboardLayout';
+import React, { useEffect, useMemo, useState } from 'react';
 import { 
   TrendingUp, 
   PieChart as PieChartIcon, 
@@ -18,35 +19,90 @@ import {
   PieChart, Pie, Cell,
   BarChart, Bar
 } from 'recharts';
+import { useAnalyticsStore } from '@/store/analytics.store';
+import { useTransactionStore } from '@/store/transaction.store';
+import { exportApi } from '@/services/export.api';
 
-const areaData = [
-  { name: 'Jan', income: 45000, expense: 32000 },
-  { name: 'Feb', income: 52000, expense: 34000 },
-  { name: 'Mar', income: 48000, expense: 41000 },
-  { name: 'Apr', income: 61000, expense: 38000 },
-  { name: 'May', income: 55000, expense: 35000 },
-  { name: 'Jun', income: 72000, expense: 42000 },
-];
+const toFiniteNumber = (value: unknown) => {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : 0;
+};
 
-const pieData = [
-  { name: 'Rent', value: 25000, color: '#3B82F6' },
-  { name: 'Food', value: 8500, color: '#8B5CF6' },
-  { name: 'Transport', value: 4200, color: '#06B6D4' },
-  { name: 'Shopping', value: 6800, color: '#6366F1' },
-  { name: 'Others', value: 3500, color: '#F472B6' },
-];
-
-const barData = [
-  { name: 'Mon', amount: 2400 },
-  { name: 'Tue', amount: 1398 },
-  { name: 'Wed', amount: 9800 },
-  { name: 'Thu', amount: 3908 },
-  { name: 'Fri', amount: 4800 },
-  { name: 'Sat', amount: 3800 },
-  { name: 'Sun', amount: 4300 },
-];
+const isRecord = (value: unknown): value is Record<string, any> => {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+};
 
 export default function AnalyticsPage() {
+  const { summary, trends, categories, isLoading, error, fetchAllAnalytics } = useAnalyticsStore();
+  const { transactions, fetchTransactions } = useTransactionStore();
+  const [range, setRange] = useState<string | undefined>(undefined);
+  const safeTransactions = Array.isArray(transactions) ? transactions : [];
+  const safeSummary = {
+    totalIncome: toFiniteNumber(summary?.totalIncome),
+    totalExpense: toFiniteNumber(summary?.totalExpense),
+    savings: toFiniteNumber(summary?.savings),
+    spendingRatio: toFiniteNumber(summary?.spendingRatio),
+  };
+
+  useEffect(() => {
+    fetchAllAnalytics(range ? { range } : {});
+  }, [fetchAllAnalytics, range]);
+
+  useEffect(() => {
+    fetchTransactions({ limit: 100, range });
+  }, [fetchTransactions, range]);
+
+  const toggleRange = () => {
+    setRange(prev => prev === '30d' ? undefined : '30d');
+  };
+
+  const handleExport = async () => {
+    try {
+      await exportApi.downloadCSV();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const areaData = useMemo(() => {
+    if (!isRecord(trends)) return [];
+    return Object.entries(trends).map(([name, data]: any) => ({
+      name,
+      income: toFiniteNumber(data?.income),
+      expense: toFiniteNumber(data?.expense),
+    }));
+  }, [trends]);
+
+  const pieData = useMemo(() => {
+    const safeCategories = Array.isArray(categories) ? categories : [];
+    const catMap: Record<string, number> = {};
+    if (!safeCategories.length) {
+      safeTransactions.forEach(t => {
+        if (t.type === 'EXPENSE') {
+          const category = t.category || 'Uncategorized';
+          catMap[category] = (catMap[category] || 0) + toFiniteNumber(t.amount);
+        }
+      });
+    }
+    const colors = ['#3B82F6', '#8B5CF6', '#06B6D4', '#6366F1', '#F472B6'];
+    const sourceData = safeCategories.length ? safeCategories : Object.entries(catMap).map(([name, value]) => ({ name, value }));
+
+    return sourceData.map((item, i) => ({
+      name: item.name || 'Uncategorized',
+      value: toFiniteNumber(item.value),
+      color: colors[i % colors.length]
+    })).filter((item) => item.value > 0).sort((a, b) => b.value - a.value).slice(0, 5);
+  }, [categories, safeTransactions]);
+
+  const barData = useMemo(() => {
+    if (!isRecord(trends)) return [];
+    // Convert trends to a simplified format for bar chart
+    return Object.entries(trends).map(([name, data]: any) => ({
+      name,
+      amount: toFiniteNumber(data?.expense),
+    }));
+  }, [trends]);
+
   return (
     <DashboardLayout>
       <div className="max-w-7xl mx-auto space-y-8 pb-10">
@@ -56,16 +112,32 @@ export default function AnalyticsPage() {
               <p className="text-gray-500">Uncover deep patterns and optimize your wealth.</p>
            </div>
            <div className="flex gap-3">
-              <Button variant="outline" className="h-11 border-white/10 hover:bg-white/5">
-                <Calendar className="w-4 h-4 mr-2" /> Quarter 2, 2026
+              <Button 
+                variant={range === '30d' ? 'default' : 'outline'} 
+                onClick={toggleRange}
+                className={`h-11 border-white/10 transition-all ${range === '30d' ? 'bg-blue-600 text-white' : 'hover:bg-white/5 text-white'}`}
+              >
+                <Calendar className="w-4 h-4 mr-2" /> {range === '30d' ? 'Last 30 Days' : 'Recent Period'}
               </Button>
-              <Button className="h-11 bg-blue-600 hover:bg-blue-700 text-white">
+              <Button onClick={handleExport} className="h-11 bg-blue-600 hover:bg-blue-700 text-white">
                 <Download className="w-4 h-4 mr-2" /> Generate Report
               </Button>
            </div>
         </div>
 
         {/* Top summary cards */}
+        {error && (
+          <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
+            {error}
+          </div>
+        )}
+
+        {isLoading && !areaData.length && !pieData.length && (
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-gray-400">
+            Loading analytics...
+          </div>
+        )}
+
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
            <Card className="bg-[#0F172A] border-white/5 rounded-3xl">
               <CardContent className="p-6">
@@ -73,12 +145,10 @@ export default function AnalyticsPage() {
                     <div className="p-2 rounded-xl bg-blue-600/10 text-blue-400">
                        <TrendingUp size={24} />
                     </div>
-                    <span className="text-green-400 text-xs font-bold font-mono tracking-tight bg-green-400/10 px-2 py-1 rounded-lg">+12.5%</span>
                  </div>
                  <p className="text-gray-500 text-sm font-medium mb-1">Savings Rate</p>
                  <div className="flex items-end gap-2">
-                    <h3 className="text-3xl font-bold text-white">32.4%</h3>
-                    <span className="text-gray-600 text-sm mb-1 line-through">28.2%</span>
+                    <h3 className="text-3xl font-bold text-white">{safeSummary.spendingRatio > 0 ? Math.max(0, 100 - safeSummary.spendingRatio).toFixed(1) : 100}%</h3>
                  </div>
               </CardContent>
            </Card>
@@ -89,10 +159,9 @@ export default function AnalyticsPage() {
                     <div className="p-2 rounded-xl bg-violet-600/10 text-violet-400">
                        <Target size={24} />
                     </div>
-                    <span className="text-blue-400 text-xs font-bold font-mono tracking-tight bg-blue-400/10 px-2 py-1 rounded-lg">+₹5.2k</span>
                  </div>
                  <p className="text-gray-500 text-sm font-medium mb-1">Disposable Income</p>
-                 <h3 className="text-3xl font-bold text-white">₹42,800</h3>
+                 <h3 className="text-3xl font-bold text-white">₹{safeSummary.savings.toLocaleString()}</h3>
               </CardContent>
            </Card>
 
@@ -102,10 +171,9 @@ export default function AnalyticsPage() {
                     <div className="p-2 rounded-xl bg-cyan-600/10 text-cyan-400">
                        <BarChart2 size={24} />
                     </div>
-                    <span className="text-red-400 text-xs font-bold font-mono tracking-tight bg-red-400/10 px-2 py-1 rounded-lg">-4.1%</span>
                  </div>
                  <p className="text-gray-500 text-sm font-medium mb-1">OpEx Efficiency</p>
-                 <h3 className="text-3xl font-bold text-white">18.5%</h3>
+                 <h3 className="text-3xl font-bold text-white">{safeSummary.spendingRatio.toFixed(1)}%</h3>
               </CardContent>
            </Card>
         </div>
@@ -187,6 +255,7 @@ export default function AnalyticsPage() {
                           <span className="text-white font-bold">₹{item.value.toLocaleString()}</span>
                        </div>
                     ))}
+                    {pieData.length === 0 && <span className="text-gray-500">No expenses recorded yet.</span>}
                  </div>
               </CardContent>
            </Card>
@@ -195,10 +264,7 @@ export default function AnalyticsPage() {
         {/* Weekly heatmap or Bar chart */}
         <Card className="bg-[#0F172A] border-white/5 rounded-[2.5rem]">
            <CardHeader className="px-8 py-6 border-b border-white/5 flex flex-row items-center justify-between">
-              <CardTitle className="text-white">Daily Spending Volume</CardTitle>
-              <div className="p-1 px-3 bg-white/5 rounded-full text-[10px] text-gray-500 font-bold uppercase tracking-widest">
-                 May 1 - May 7
-              </div>
+              <CardTitle className="text-white">Spending Volume Trend</CardTitle>
            </CardHeader>
            <CardContent className="p-8 h-[300px]">
               <ResponsiveContainer width="100%" height="100%">

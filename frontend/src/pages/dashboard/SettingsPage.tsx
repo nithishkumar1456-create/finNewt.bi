@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { DashboardLayout } from '@/layouts/DashboardLayout';
 import { 
@@ -20,36 +20,80 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import { useAuthStore } from '@/store/auth.store';
+import { userApi } from '@/services/user.api';
 
 export default function SettingsPage() {
-  const { user, setAuth } = useAuthStore();
+  const { user, setUser, logout } = useAuthStore();
   const [activeTab, setActiveTab] = useState('General');
   const [isSaving, setIsSaving] = useState(false);
+  const [message, setMessage] = useState<{ type: 'success'|'error', text: string } | null>(null);
   
   // Form States
   const [formData, setFormData] = useState({
-    name: user?.name || '',
-    email: user?.email || '',
+    fullName: user?.fullName || '',
+  });
+
+  const [passwordData, setPasswordData] = useState({
     currentPassword: '',
     newPassword: '',
   });
 
   const [toggles, setToggles] = useState({
-    darkMode: true,
-    notifications: true,
-    twoFactor: true,
-    emailReports: false
+    darkMode: user?.settings?.theme === 'dark' || true,
+    notificationEmail: user?.settings?.notificationEmail ?? true,
+    notificationPush: user?.settings?.notificationPush ?? true,
   });
 
-  const handleSave = () => {
+  useEffect(() => {
+    if (user) {
+      setFormData({ fullName: user.fullName });
+      setToggles({
+        darkMode: user.settings?.theme === 'dark' || true,
+        notificationEmail: user.settings?.notificationEmail ?? true,
+        notificationPush: user.settings?.notificationPush ?? true,
+      });
+    }
+  }, [user]);
+
+  const handleSaveProfile = async () => {
     setIsSaving(true);
-    setTimeout(() => {
-      if (activeTab === 'General' && user) {
-        setAuth({ ...user, name: formData.name, email: formData.email }, localStorage.getItem('token') || '');
+    setMessage(null);
+    try {
+      const res = await userApi.updateProfile({ fullName: formData.fullName });
+      if (res.data.success && res.data.data) {
+        setUser(res.data.data.user);
+        setMessage({ type: 'success', text: 'Profile updated successfully!' });
       }
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.response?.data?.message || 'Failed to update profile' });
+    } finally {
       setIsSaving(false);
-      // In a real app we'd show a toast here
-    }, 1000);
+    }
+  };
+
+  const handleSavePassword = async () => {
+    setIsSaving(true);
+    setMessage(null);
+    try {
+      await userApi.changePassword(passwordData);
+      setMessage({ type: 'success', text: 'Password changed successfully!' });
+      setPasswordData({ currentPassword: '', newPassword: '' });
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.response?.data?.message || 'Failed to change password' });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleSaveToggles = async (updates: any) => {
+    try {
+      const res = await userApi.updateProfile(updates);
+      if (res.data.success && res.data.data) {
+        setUser(res.data.data.user);
+      }
+    } catch (err: any) {
+      console.error(err);
+    }
   };
 
   const navItems = [
@@ -57,7 +101,6 @@ export default function SettingsPage() {
     { icon: Lock, label: 'Security' },
     { icon: Bell, label: 'Notifications' },
     { icon: Palette, label: 'Appearance' },
-    { icon: Smartphone, label: 'Connected Apps' },
   ];
 
   return (
@@ -68,13 +111,19 @@ export default function SettingsPage() {
           <p className="text-gray-500">Manage your profile, preferences, and account security.</p>
         </div>
 
+        {message && (
+          <div className={`p-4 rounded-xl text-sm font-bold ${message.type === 'success' ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-red-500/10 text-red-500 border border-red-500/20'}`}>
+            {message.text}
+          </div>
+        )}
+
         <div className="grid lg:grid-cols-4 gap-8">
            {/* Navigation tabs */}
            <nav className="space-y-1">
               {navItems.map((item) => (
                 <button
                   key={item.label}
-                  onClick={() => setActiveTab(item.label)}
+                  onClick={() => { setActiveTab(item.label); setMessage(null); }}
                   className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-sm font-medium transition-all ${
                     activeTab === item.label 
                       ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' 
@@ -107,25 +156,25 @@ export default function SettingsPage() {
                           <div className="space-y-2">
                              <Label className="text-gray-400 ml-1">Full Name</Label>
                              <Input 
-                               value={formData.name}
-                               onChange={(e) => setFormData({...formData, name: e.target.value})}
-                               className="bg-white/5 border-white/10 h-11 rounded-xl"
+                               value={formData.fullName}
+                               onChange={(e) => setFormData({...formData, fullName: e.target.value})}
+                               className="bg-white/5 border-white/10 h-11 rounded-xl text-white"
                              />
                           </div>
                           <div className="space-y-2">
                              <Label className="text-gray-400 ml-1">Email Address</Label>
                              <Input 
-                               value={formData.email}
-                               onChange={(e) => setFormData({...formData, email: e.target.value})}
-                               className="bg-white/5 border-white/10 h-11 rounded-xl"
+                               value={user?.email || ''}
+                               disabled
+                               className="bg-white/5 border-white/10 h-11 rounded-xl text-gray-500 opacity-60"
                              />
                           </div>
                           <div className="space-y-2 md:col-span-2">
                              <Label className="text-gray-400 ml-1">Currency</Label>
                              <div className="relative">
                                 <Input 
-                                  value="Indian Rupee (INR)" 
-                                  className="bg-white/5 border-white/10 h-11 rounded-xl opacity-60"
+                                  value={user?.settings?.currency || 'USD'} 
+                                  className="bg-white/5 border-white/10 h-11 rounded-xl opacity-60 text-white"
                                   disabled
                                 />
                                 <Button variant="ghost" size="sm" className="absolute right-2 top-1/2 -translate-y-1/2 text-blue-500 font-bold hover:bg-white/5">Change</Button>
@@ -134,39 +183,12 @@ export default function SettingsPage() {
                        </div>
                        <div className="mt-8 flex justify-end">
                           <Button 
-                            onClick={handleSave} 
+                            onClick={handleSaveProfile} 
                             disabled={isSaving}
-                            className="bg-blue-600 hover:bg-blue-700 h-11 px-8 rounded-xl font-bold"
+                            className="bg-blue-600 hover:bg-blue-700 h-11 px-8 rounded-xl font-bold text-white"
                           >
                             {isSaving ? 'Saving...' : 'Update Profile'}
                           </Button>
-                       </div>
-                    </div>
-
-                    <div className="glass p-8 rounded-3xl border border-white/5">
-                       <h2 className="text-lg font-bold text-white mb-6">Account Preferences</h2>
-                       <div className="space-y-6">
-                          <div className="flex items-center justify-between">
-                             <div className="space-y-0.5">
-                                <Label className="text-white text-base">Dark Mode</Label>
-                                <p className="text-sm text-gray-500">Enable high-contrast dark theme</p>
-                             </div>
-                             <Switch 
-                               checked={toggles.darkMode} 
-                               onCheckedChange={(val) => setToggles({...toggles, darkMode: val})} 
-                             />
-                          </div>
-                          <Separator className="bg-white/5" />
-                          <div className="flex items-center justify-between">
-                             <div className="space-y-0.5">
-                                <Label className="text-white text-base">Weekly Reports</Label>
-                                <p className="text-sm text-gray-500">Get a PDF summary of your spending via email</p>
-                             </div>
-                             <Switch 
-                               checked={toggles.emailReports} 
-                               onCheckedChange={(val) => setToggles({...toggles, emailReports: val})} 
-                             />
-                          </div>
                        </div>
                     </div>
                   </motion.div>
@@ -187,7 +209,9 @@ export default function SettingsPage() {
                              <Label className="text-gray-400 ml-1">Current Password</Label>
                              <Input 
                                type="password"
-                               className="bg-white/5 border-white/10 h-11 rounded-xl"
+                               value={passwordData.currentPassword}
+                               onChange={e => setPasswordData({...passwordData, currentPassword: e.target.value})}
+                               className="bg-white/5 border-white/10 h-11 rounded-xl text-white"
                                placeholder="••••••••"
                              />
                           </div>
@@ -195,12 +219,16 @@ export default function SettingsPage() {
                              <Label className="text-gray-400 ml-1">New Password</Label>
                              <Input 
                                type="password"
-                               className="bg-white/5 border-white/10 h-11 rounded-xl"
+                               value={passwordData.newPassword}
+                               onChange={e => setPasswordData({...passwordData, newPassword: e.target.value})}
+                               className="bg-white/5 border-white/10 h-11 rounded-xl text-white"
                                placeholder="••••••••"
                              />
                           </div>
                           <div className="flex justify-end pt-4">
-                             <Button className="bg-blue-600 hover:bg-blue-700 h-11 px-8 rounded-xl font-bold">Update Password</Button>
+                             <Button onClick={handleSavePassword} disabled={isSaving || !passwordData.currentPassword || !passwordData.newPassword} className="bg-blue-600 hover:bg-blue-700 h-11 px-8 rounded-xl font-bold text-white">
+                               Update Password
+                             </Button>
                           </div>
                        </div>
                     </div>
@@ -230,20 +258,20 @@ export default function SettingsPage() {
                   >
                     <h2 className="text-lg font-bold text-white mb-6">Notification Channels</h2>
                     <div className="space-y-8">
-                       {[
-                         { title: 'Push Notifications', desc: 'Alerts sent directly to your mobile device' },
-                         { title: 'Email Alerts', desc: 'Critical security and transaction updates via email' },
-                         { title: 'Budget Reminders', desc: 'Get notified when you hit 80% of your budget' },
-                         { title: 'Goal Milestones', desc: 'Celebrate when you reach 50% or 100% of a goal' },
-                       ].map((n, i) => (
-                         <div key={i} className="flex items-center justify-between">
+                         <div className="flex items-center justify-between">
                             <div className="space-y-0.5">
-                               <Label className="text-white text-base">{n.title}</Label>
-                               <p className="text-sm text-gray-500">{n.desc}</p>
+                               <Label className="text-white text-base">Push Notifications</Label>
+                               <p className="text-sm text-gray-500">Alerts sent directly to your mobile device</p>
                             </div>
-                            <Switch defaultChecked={i < 2} />
+                            <Switch checked={toggles.notificationPush} onCheckedChange={(v) => { setToggles({...toggles, notificationPush: v}); handleSaveToggles({ notificationPush: v }); }} />
                          </div>
-                       ))}
+                         <div className="flex items-center justify-between">
+                            <div className="space-y-0.5">
+                               <Label className="text-white text-base">Email Alerts</Label>
+                               <p className="text-sm text-gray-500">Critical security and transaction updates via email</p>
+                            </div>
+                            <Switch checked={toggles.notificationEmail} onCheckedChange={(v) => { setToggles({...toggles, notificationEmail: v}); handleSaveToggles({ notificationEmail: v }); }} />
+                         </div>
                     </div>
                   </motion.div>
                 )}
@@ -260,10 +288,10 @@ export default function SettingsPage() {
                     <div className="space-y-6">
                        <div className="flex items-center justify-between">
                           <div className="space-y-0.5">
-                             <Label className="text-white text-base">Glassmorphism Effect</Label>
-                             <p className="text-sm text-gray-500">Enable frosted glass background animations</p>
+                             <Label className="text-white text-base">Dark Mode Theme</Label>
+                             <p className="text-sm text-gray-500">Enable high-contrast dark theme</p>
                           </div>
-                          <Switch defaultChecked />
+                          <Switch checked={toggles.darkMode} onCheckedChange={(v) => { setToggles({...toggles, darkMode: v}); handleSaveToggles({ theme: v ? 'dark' : 'light' }); }} />
                        </div>
                        <Separator className="bg-white/5" />
                        <div className="flex items-center justify-between">
@@ -277,41 +305,13 @@ export default function SettingsPage() {
                   </motion.div>
                 )}
 
-                {activeTab === 'Connected Apps' && (
-                  <motion.div
-                    key="apps"
-                    initial={{ opacity: 0, x: 10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -10 }}
-                    className="glass p-8 rounded-3xl border border-white/5"
-                  >
-                    <h2 className="text-lg font-bold text-white mb-6">External Integrations</h2>
-                    <div className="space-y-6">
-                       {[
-                         { name: 'Google Sheets', status: 'Connected', desc: 'Sync your transactions to sheets' },
-                         { name: 'Slack', status: 'Not Connected', desc: 'Get budget alerts in your Slack channels' },
-                         { name: 'QuickBooks', status: 'Not Connected', desc: 'Enterprise accounting sync' },
-                       ].map((app, i) => (
-                         <div key={i} className="flex items-center justify-between">
-                            <div className="space-y-0.5">
-                               <Label className="text-white text-base">{app.name}</Label>
-                               <p className="text-sm text-gray-500">{app.desc}</p>
-                            </div>
-                            <Button variant="outline" size="sm" className={`rounded-lg ${app.status === 'Connected' ? 'border-green-500/20 text-green-400' : 'border-white/10 text-white'}`}>
-                               {app.status === 'Connected' ? 'Setup' : 'Connect'}
-                            </Button>
-                         </div>
-                       ))}
-                    </div>
-                  </motion.div>
-                )}
               </AnimatePresence>
 
               {/* Danger Zone - Always show at bottom for visibility */}
               <div className="border border-red-500/20 bg-red-500/5 p-8 rounded-3xl">
                  <h2 className="text-lg font-bold text-red-500 mb-2">Danger Zone</h2>
                  <p className="text-sm text-gray-500 mb-6">Permanently delete your account and all associated data. This action cannot be undone.</p>
-                 <Button variant="outline" className="border-red-500/20 text-red-500 hover:bg-red-500/10 h-11 px-8 rounded-xl font-bold">Delete Account</Button>
+                 <Button onClick={logout} variant="outline" className="border-red-500/20 text-red-500 hover:bg-red-500/10 h-11 px-8 rounded-xl font-bold">Logout Immediately</Button>
               </div>
            </div>
         </div>

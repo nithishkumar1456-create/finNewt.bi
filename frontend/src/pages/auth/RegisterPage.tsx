@@ -6,28 +6,50 @@ import { Label } from '@/components/ui/label';
 import { Wallet, Mail, Lock, User, Phone, ArrowRight, Check } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AntiGravityCanvas } from '@/components/ui/particle-effect-for-hero';
+import { useAuthStore } from '@/store/auth.store';
 
 export default function RegisterPage() {
   const [step, setStep] = useState(1); // 1: form, 2: OTP
-  const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
+  const { register, verifyOtp, isLoading, error, clearError } = useAuthStore();
+  
+  const [formData, setFormData] = useState({
+    fullName: '',
+    email: '',
+    phone: '',
+    password: '',
+  });
+  
+  const [otp, setOtp] = useState(['', '', '', '', '', '']);
 
-  const handleRegister = (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsLoading(true);
-    setTimeout(() => {
+    clearError();
+    try {
+      await register(formData);
       setStep(2);
-      setIsLoading(false);
-    }, 1500);
+    } catch (err) {
+      console.error(err);
+    }
   };
 
-  const handleVerify = (e: React.FormEvent) => {
+  const handleVerify = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
-      navigate('/login');
-    }, 1500);
+    clearError();
+    const otpCode = otp.join('');
+    try {
+      await verifyOtp(formData.email, otpCode);
+      navigate('/dashboard');
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleOtpChange = (index: number, value: string) => {
+    const newOtp = [...otp];
+    newOtp[index] = value.substring(value.length - 1);
+    setOtp(newOtp);
+    // Simple auto focus next logic could go here
   };
 
   return (
@@ -62,6 +84,8 @@ export default function RegisterPage() {
               className="glass-dark p-8 rounded-[2.5rem] border border-white/10 shadow-2xl"
             >
               <form onSubmit={handleRegister} className="space-y-5">
+                {error && <div className="p-3 bg-red-500/10 border border-red-500/50 rounded-xl text-red-500 text-sm">{error}</div>}
+                
                 <div className="grid grid-cols-1 gap-5">
                   <div className="space-y-2">
                     <Label className="text-gray-300 ml-1">Full Name</Label>
@@ -69,7 +93,9 @@ export default function RegisterPage() {
                       <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
                       <Input
                         placeholder="John Doe"
-                        className="bg-white/5 border-white/10 pl-12 h-14 rounded-2xl focus:border-blue-500"
+                        value={formData.fullName}
+                        onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
+                        className="bg-white/5 border-white/10 pl-12 h-14 rounded-2xl focus:border-blue-500 text-white"
                         required
                       />
                     </div>
@@ -82,7 +108,9 @@ export default function RegisterPage() {
                       <Input
                         type="email"
                         placeholder="john@example.com"
-                        className="bg-white/5 border-white/10 pl-12 h-14 rounded-2xl focus:border-blue-500"
+                        value={formData.email}
+                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                        className="bg-white/5 border-white/10 pl-12 h-14 rounded-2xl focus:border-blue-500 text-white"
                         required
                       />
                     </div>
@@ -95,7 +123,9 @@ export default function RegisterPage() {
                       <Input
                         type="tel"
                         placeholder="+91 98765 43210"
-                        className="bg-white/5 border-white/10 pl-12 h-14 rounded-2xl focus:border-blue-500"
+                        value={formData.phone}
+                        onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                        className="bg-white/5 border-white/10 pl-12 h-14 rounded-2xl focus:border-blue-500 text-white"
                         required
                       />
                     </div>
@@ -108,7 +138,9 @@ export default function RegisterPage() {
                       <Input
                         type="password"
                         placeholder="••••••••"
-                        className="bg-white/5 border-white/10 pl-12 h-14 rounded-2xl focus:border-blue-500"
+                        value={formData.password}
+                        onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                        className="bg-white/5 border-white/10 pl-12 h-14 rounded-2xl focus:border-blue-500 text-white"
                         required
                       />
                     </div>
@@ -153,11 +185,16 @@ export default function RegisterPage() {
               </p>
 
               <form onSubmit={handleVerify} className="space-y-8">
+                {error && <div className="p-3 bg-red-500/10 border border-red-500/50 rounded-xl text-red-500 text-sm">{error}</div>}
+                
                 <div className="flex justify-center gap-3">
-                   {[1, 2, 3, 4, 5, 6].map((i) => (
+                   {otp.map((digit, i) => (
                       <input
                         key={i}
+                        type="text"
                         maxLength={1}
+                        value={digit}
+                        onChange={(e) => handleOtpChange(i, e.target.value)}
                         className="w-12 h-14 bg-white/5 border border-white/10 rounded-xl text-center text-2xl font-bold text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all"
                       />
                    ))}
@@ -166,13 +203,13 @@ export default function RegisterPage() {
                 <Button
                   type="submit"
                   disabled={isLoading}
-                  className="w-full bg-blue-600 hover:bg-blue-700 h-14 rounded-2xl text-lg font-bold"
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white h-14 rounded-2xl text-lg font-bold"
                 >
                   {isLoading ? 'Verifying...' : 'Verify & Continue'}
                 </Button>
 
                 <p className="text-sm text-gray-500">
-                  Didn't receive code? <button className="text-blue-500 font-bold ml-1">Resend Code</button>
+                  Didn't receive code? <button type="button" className="text-blue-500 font-bold ml-1">Resend Code</button>
                 </p>
               </form>
             </motion.div>
