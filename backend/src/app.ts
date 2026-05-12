@@ -15,12 +15,18 @@ import { prisma } from './database/prisma';
 import redis from './cache/redis';
 
 const app: Express = express();
+const allowedOrigins = [
+  env.CLIENT_URL,
+  'http://localhost:5173',
+  'https://nithishkumar1456-create.github.io',
+  'https://nithishkumar1456-create.github.io/finnewt-bi',
+];
 
 // Security Middlewares
 app.use(helmet());
 app.use(
   cors({
-    origin: Array.from(new Set([env.CLIENT_URL, 'http://localhost:5173'])),
+    origin: Array.from(new Set(allowedOrigins)),
     credentials: true,
   })
 );

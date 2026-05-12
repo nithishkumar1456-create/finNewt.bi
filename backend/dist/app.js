@@ -17,10 +17,16 @@ const rateLimiter_1 = require("./middlewares/rateLimiter");
 const prisma_1 = require("./database/prisma");
 const redis_1 = __importDefault(require("./cache/redis"));
 const app = (0, express_1.default)();
+const allowedOrigins = [
+    env_1.env.CLIENT_URL,
+    'http://localhost:5173',
+    'https://nithishkumar1456-create.github.io',
+    'https://nithishkumar1456-create.github.io/finnewt-bi',
+];
 // Security Middlewares
 app.use((0, helmet_1.default)());
 app.use((0, cors_1.default)({
-    origin: Array.from(new Set([env_1.env.CLIENT_URL, 'http://localhost:5173'])),
+    origin: Array.from(new Set(allowedOrigins)),
     credentials: true,
 }));
 // Logging
